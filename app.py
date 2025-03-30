@@ -4,8 +4,6 @@ import openai
 import anthropic
 import os
 from dotenv import load_dotenv
-import threading
-import time
 
 # Load environment variables
 load_dotenv()
