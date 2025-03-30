@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Initialize AI clients
-openai_client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+openai.api_key = os.getenv('OPENAI_API_KEY')
 anthropic_client = anthropic.Client(api_key=os.getenv('ANTHROPIC_API_KEY'))
 
 app = Flask(__name__)
@@ -17,7 +17,7 @@ CORS(app)
 
 def get_openai_response(question):
     try:
-        response = openai_client.chat.completions.create(
+        response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant for a Kahoot trivia game. Provide ONLY the letter of the correct answer (A, B, C, or D) followed by a brief explanation. Be extremely concise."},
