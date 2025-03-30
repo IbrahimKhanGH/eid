@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Kahoot Helper</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            margin: 0;
+            padding: 10px;
+            background: #000;
+            color: #fff;
+        }
+        .container {
+            max-width: 100%;
+            margin: 0 auto;
+            padding: 10px;
+        }
+        .mic-button {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: #007AFF;
+            border: none;
+            color: #fff;
+            font-size: 24px;
+            margin: 20px auto;
+            display: block;
+            transition: all 0.3s;
+            position: relative;
+        }
+        .mic-button:disabled {
+            background: #666;
+            opacity: 0.5;
+        }
+        .mic-button.recording {
+            background: #FF3B30;
+            transform: scale(1.1);
+        }
+        .question-display {
+            background: #333;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 8px;
+            font-size: 16px;
+            min-height: 50px;
+        }
+        .response {
+            background: #333;
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 8px;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+        }
+        .response .letter {
+            font-size: 24px;
+            font-weight: bold;
+            margin-right: 10px;
+            color: #007AFF;
+        }
+        .status {
+            text-align: center;
+            margin: 10px 0;
+            font-size: 16px;
+            color: #999;
+            min-height: 40px;
+        }
+        .permission-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.9);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            padding: 20px;
+            text-align: center;
+        }
+        .permission-overlay.visible {
+            display: flex;
+        }
+        .permission-content {
+            background: #333;
+            padding: 20px;
+            border-radius: 12px;
+            max-width: 300px;
+        }
+        .permission-button {
+            background: #007AFF;
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 16px;
+            margin-top: 15px;
+            cursor: pointer;
+        }
+        .error-message {
+            color: #FF3B30;
+            margin-top: 10px;
+            font-size: 14px;
+            text-align: center;
+        }
+        .permission-instructions {
+            margin: 15px 0;
+            padding: 15px;
+            background: #333;
+            border-radius: 8px;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        .permission-instructions ol {
+            text-align: left;
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        .permission-instructions li {
+            margin: 8px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="status" id="status">Click microphone and allow permission</div>
+        <button onclick="requestMicrophoneAccess()" class="mic-button" id="micButton">🎤</button>
+        <div id="errorMessage" class="error-message"></div>
+        <div class="permission-instructions">
+            <strong>For Arc Browser Users:</strong>
+            <ol>
+                <li>Click the three dots (...) in the top-right corner</li>
+                <li>Click "View site settings"</li>
+                <li>Find "Microphone" in the permissions</li>
+                <li>Change from "Block" to "Allow"</li>
+                <li>Refresh this page</li>
+            </ol>
+            <strong>For Other Browsers:</strong>
+            <ol>
+                <li>Look for the lock/site settings icon in the address bar</li>
+                <li>Find "Microphone" in the permissions list</li>
+                <li>Change it to "Allow"</li>
+                <li>Refresh this page</li>
+            </ol>
+        </div>
+        <div class="question-display" id="questionDisplay"></div>
+        <div id="responses"></div>
+    </div>
+
+    <div class="permission-overlay" id="permissionOverlay">
+        <div class="permission-content">
+            <h3>Microphone Access Needed</h3>
+            <p>This app needs microphone access to hear your questions. When prompted by your browser, please click "Allow".</p>
+            <button onclick="requestMicrophoneAccess()" class="permission-button">Enable Microphone</button>
+        </div>
+    </div>
+
+    <script>
+        let recognition;
+        let isRecording = false;
+        let hasPermission = false;
+
+        // Check if we're running on a secure context (HTTPS or localhost)
+        const isSecureContext = window.isSecureContext;
+        if (!isSecureContext) {
+            document.getElementById('status').textContent = 'Error: Must use HTTPS or localhost';
+            document.getElementById('errorMessage').textContent = 'Please access this page via HTTPS or localhost';
+            document.getElementById('micButton').disabled = true;
+        }
+
+        async function checkMicrophonePermission() {
+            try {
+                // First check if the API is available
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    throw new Error('Media devices API not available');
+                }
+
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                stream.getTracks().forEach(track => track.stop());
+                hasPermission = true;
+                document.getElementById('status').textContent = 'Tap microphone to start';
+                document.getElementById('micButton').disabled = false;
+                document.getElementById('errorMessage').textContent = '';
+            } catch (err) {
+                console.error('Microphone permission error:', err);
+                hasPermission = false;
+                document.getElementById('micButton').disabled = true;
+                
+                // Show specific error messages
+                if (err.name === 'NotAllowedError') {
+                    document.getElementById('status').textContent = 'Microphone access denied';
+                    document.getElementById('errorMessage').textContent = 
+                        'Please allow microphone access in your browser settings and refresh the page';
+                } else if (err.name === 'NotFoundError') {
+                    document.getElementById('status').textContent = 'No microphone found';
+                    document.getElementById('errorMessage').textContent = 
+                        'Please connect a microphone and refresh the page';
+                } else {
+                    document.getElementById('status').textContent = 'Error accessing microphone';
+                    document.getElementById('errorMessage').textContent = err.message;
+                }
+            }
+        }
+
+        async function requestMicrophoneAccess() {
+            // Reset error message
+            document.getElementById('errorMessage').textContent = '';
+            
+            if (!hasPermission) {
+                await checkMicrophonePermission();
+                // If we got permission, automatically start recording
+                if (hasPermission) {
+                    toggleRecording();
+                }
+            } else {
+                toggleRecording();
+            }
+        }
+
+        // Initialize speech recognition
+        function initSpeechRecognition() {
+            if (!hasPermission) {
+                checkMicrophonePermission();
+                return;
+            }
+
+            try {
+                recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+                recognition.continuous = false;
+                recognition.interimResults = true;
+                recognition.lang = 'en-US';
+
+                recognition.onstart = () => {
+                    document.getElementById('status').textContent = 'Listening...';
+                    document.getElementById('micButton').classList.add('recording');
+                    document.getElementById('errorMessage').textContent = '';
+                };
+
+                recognition.onend = () => {
+                    if (isRecording) {
+                        recognition.start();
+                    } else {
+                        document.getElementById('status').textContent = 'Processing...';
+                        document.getElementById('micButton').classList.remove('recording');
+                    }
+                };
+
+                recognition.onresult = (event) => {
+                    const transcript = Array.from(event.results)
+                        .map(result => result[0].transcript)
+                        .join('');
+                    
+                    document.getElementById('questionDisplay').textContent = transcript;
+                    
+                    if (event.results[0].isFinal) {
+                        isRecording = false;
+                        recognition.stop();
+                        askQuestion(transcript);
+                    }
+                };
+
+                recognition.onerror = (event) => {
+                    console.error('Speech recognition error:', event.error);
+                    if (event.error === 'not-allowed') {
+                        hasPermission = false;
+                        checkMicrophonePermission();
+                    }
+                    document.getElementById('status').textContent = 'Error occurred';
+                    document.getElementById('errorMessage').textContent = 
+                        `Speech recognition error: ${event.error}. Please refresh and try again.`;
+                    isRecording = false;
+                    document.getElementById('micButton').classList.remove('recording');
+                };
+            } catch (err) {
+                console.error('Speech recognition initialization error:', err);
+                document.getElementById('status').textContent = 'Error initializing speech recognition';
+                document.getElementById('errorMessage').textContent = err.message;
+            }
+        }
+
+        function toggleRecording() {
+            if (!recognition) {
+                initSpeechRecognition();
+                return;
+            }
+
+            if (!isRecording) {
+                // Start recording
+                isRecording = true;
+                document.getElementById('responses').innerHTML = '';
+                recognition.start();
+            } else {
+                // Stop recording
+                isRecording = false;
+                recognition.stop();
+            }
+        }
+
+        async function askQuestion(question) {
+            const responses = document.getElementById('responses');
+            document.getElementById('status').textContent = 'Getting answers...';
+
+            try {
+                const response = await fetch('/ask', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ question }),
+                });
+
+                const data = await response.json();
+                
+                responses.innerHTML = Object.entries(data).map(([model, answer]) => {
+                    // Extract just the letter if it's at the start of the answer
+                    const letterMatch = answer.match(/^[A-D]/i);
+                    const letter = letterMatch ? letterMatch[0].toUpperCase() : '';
+                    const explanation = letter ? answer.substring(1).trim() : answer;
+                    
+                    return `
+                        <div class="response">
+                            ${letter ? `<span class="letter">${letter}</span>` : ''}
+                            <span>${explanation}</span>
+                        </div>
+                    `;
+                }).join('');
+
+                document.getElementById('status').textContent = 'Tap microphone for next question';
+            } catch (error) {
+                responses.innerHTML = `<div class="response">Error: ${error.message}</div>`;
+                document.getElementById('status').textContent = 'Error occurred';
+            }
+        }
+
+        // Check if speech recognition is supported
+        if (!window.SpeechRecognition && !window.webkitSpeechRecognition) {
+            document.getElementById('status').textContent = 'Speech recognition not supported in this browser';
+            document.getElementById('micButton').disabled = true;
+        } else {
+            // Check initial microphone permission
+            checkMicrophonePermission();
+        }
+    </script>
+</body>
+</html> 
